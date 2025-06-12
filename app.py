@@ -360,6 +360,42 @@ html = '''
     // 可以在這裡處理來自父頁面的訊息
     console.log('iframe 收到訊息:', event.data);
   });
+
+
+  // index.js 或 app.js
+
+const express = require('express');
+const cors = require('cors');
+const app = express();
+
+// 設定允許哪些網域可以發送請求
+const allowedOrigins = [
+  'https://scusatw.com/' // 開發測試用
+];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // 若 origin 為 undefined（如 curl 或同源請求），也可允許
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true // 如果你要處理 cookies 或 auth headers
+}));
+
+// 測試用路由
+app.get('/api/hello', (req, res) => {
+  res.json({ message: 'Hello from Render!' });
+});
+
+// 啟動伺服器
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
+
 </script>
 
 </body>
