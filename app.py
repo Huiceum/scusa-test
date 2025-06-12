@@ -296,6 +296,7 @@ html = '''
         if (isInIframe) {
           sendMessageToParent({
             type: 'LOGIN_SUCCESS',
+            random_code: randomCode, // <--- 新增這行！
             userid: userid,
             action: 'setSessionStorage'
           });
