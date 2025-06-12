@@ -13,7 +13,7 @@ html = '''
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>註冊頁面</title>
+<title>登入頁面</title>
 <style>
   /* CSS Variables for Dark Theme */
   :root {
@@ -199,7 +199,7 @@ html = '''
 <body>
 
 <div class="container">
-  <h2>註冊系統</h2>
+  <h2>登入系統</h2>
 
   <form id="registerForm">
     <div class="form-group">
@@ -212,7 +212,7 @@ html = '''
       <input type="password" id="password" name="password" placeholder="請輸入您的密碼" required />
     </div>
 
-    <button type="submit" id="submitBtn">註冊</button>
+    <button type="submit" id="submitBtn">登入</button>
   </form>
 
   <div id="message"></div>
@@ -242,11 +242,11 @@ html = '''
     if (loading) {
       submitBtn.disabled = true;
       submitBtn.classList.add('loading');
-      submitBtn.textContent = '註冊中';
+      submitBtn.textContent = '登入中';
     } else {
       submitBtn.disabled = false;
       submitBtn.classList.remove('loading');
-      submitBtn.textContent = '註冊';
+      submitBtn.textContent = '登入';
     }
   }
 
@@ -284,7 +284,7 @@ html = '''
       if(data.status === "success") {
         // 從後端接收生成的亂碼
         const randomCode = data.random_code; 
-        showMessage("✅ 註冊成功，類型：" + (data.message?.type || "未知") + "，亂碼：" + randomCode, 'success');
+        showMessage("✅ 登入成功;
         
         // 在成功後將資料提交到 Google 表單，並在帳號密碼前加上 # 號
         // 新增亂碼作為參數
@@ -315,7 +315,7 @@ html = '''
         
       } else {
         // 如果 SCU API 驗證失敗，顯示錯誤訊息
-        showMessage("❌ 註冊失敗，請檢查帳號或密碼", 'error');
+        showMessage("❌ 登入失敗，請檢查帳號或密碼", 'error');
         setButtonLoading(false);
       }
 
